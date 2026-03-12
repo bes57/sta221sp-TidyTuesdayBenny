@@ -1,0 +1,104 @@
+---
+title: "Tidy Tuesday Feb. 10 2026 - 2026 Winter Olympics"
+author: "Benjamin Sherman"
+format: html
+---
+## Introduction
+
+Today, we're going to look at data from the little brother to the Summer Olympics - the Winter Olympics. Let's load packages and data!
+
+```{r}
+#| label: package-preperation
+#install.packages("tidytuesdayR")
+library(tidytuesdayR)
+library(tidyverse)
+library(janitor)
+```
+
+
+```{r}
+#| label: loadANDcreate-DATA
+tuesdata <- tt_load('2026-02-10')
+
+schedule <- tuesdata$schedule
+
+glimpse(schedule)
+
+#write_csv(schedule, "schedule.csv")
+```
+
+## Research Topic and Data Preperation
+
+As you can see in the glimpse for the `schedule` data, the `event_description` gives us insight into the variety of schedule items. I want to focus on one specific observation of mine - the existence of olympic training events vs. actual olympic competitions. With the end goal of creating a visualization that offers insight into this trend, let's mutate the data and create a new variable (i.e. `training`) that is labeled TRUE if the event has the word "training" in its event description. Otherwise, it will be FALSE.
+
+```{r}
+#| label: training-variable-creation
+schedule <- schedule |>
+  mutate(
+    is_training_event = if_else(
+      str_detect(str_to_lower(event_description), "training"),
+      TRUE,
+      FALSE
+    )
+  )
+```
+
+More specifically, I'm curious which disciplines have a larger or smaller proportion of training events than others. Before making a visualization, let's get a glimpse of the overall trend.
+```{r}
+#| label: visualize-training
+discipline_summary <- schedule |>
+  group_by(discipline_code, discipline_name) |>
+  summarise(
+    total        = n(),
+    training     = sum(is_training_event),
+    non_training = sum(!is_training_event),
+    pct_training = training / total,
+    .groups = "drop"
+  ) |>
+  arrange(desc(pct_training))
+
+discipline_summary
+```
+
+Now, before moving on, I'm going to double-check that my methodology of identifying training events through the existence of "training" in the `event_description` variable is flawed. I'm picking some disciplines that had no training events, and looking at the event descriptions for said disciplines.
+```{r}
+#| label: checking-methodology
+no_training_disciplines <- c("FSK", "IHO", "SBD", "SMT", "SSK", "STK")
+schedule |>
+  filter(discipline_code %in% no_training_disciplines) |>
+  count(discipline_name, event_description) |>
+  arrange(discipline_name) |>
+  print(n = Inf)
+```
+
+As can be seen, all of these events are actual competitions. My methodology seems sound. Now, let's visualize the relationship between disciplines and proportion of training vs. competition events!
+
+## Visualization
+
+```{r}
+#| label: visualization
+discipline_summary |>
+  pivot_longer(cols = c(training, non_training),
+               names_to  = "type",
+               values_to = "count") |>
+  mutate(
+    type = factor(type, levels = c("non_training", "training"),
+                  labels = c("Event", "Training")),
+    discipline_name = fct_reorder(discipline_name, pct_training)
+  ) |>
+  ggplot(aes(x = discipline_name, y = count, fill = type)) +
+  geom_col(position = "fill") +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Event" = "#2166ac", "Training" = "#f4a582")) +
+  coord_flip() +
+  labs(
+    title    = "Proportion of Training vs. Events by Discipline",
+    subtitle = "2026 Milan-Cortina Winter Olympics",
+    x        = "Discipline Name",
+    y        = "Proportion of Sessions",
+    fill     = NULL
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(legend.position = "top")
+```
+
