@@ -43,7 +43,8 @@ schedule <- schedule |>
   )
 ```
 
-More specifically, I'm curious which disciplines have a larger or smaller proportion of training events than others. Before making a visualization, let's get a glimpse of the overall trend.
+More specifically, I'm curious which disciplines have a larger or smaller proportion of training events than others. Before making a visualization, let's get a glimpse of the overall trend. 
+
 ```{r}
 #| label: visualize-training
 discipline_summary <- schedule |>
@@ -59,8 +60,10 @@ discipline_summary <- schedule |>
 
 discipline_summary
 ```
+ 
 
-Now, before moving on, I'm going to double-check that my methodology of identifying training events through the existence of "training" in the `event_description` variable is flawed. I'm picking some disciplines that had no training events, and looking at the event descriptions for said disciplines.
+Now, before moving on, I'm going to double-check that my methodology of identifying training events through the existence of "training" in the `event_description` variable is flawed. I'm picking some disciplines that had no training events, and looking at the event descriptions for said disciplines. 
+
 ```{r}
 #| label: checking-methodology
 no_training_disciplines <- c("FSK", "IHO", "SBD", "SMT", "SSK", "STK")
@@ -101,4 +104,74 @@ discipline_summary |>
   theme_minimal(base_size = 13) +
   theme(legend.position = "top")
 ```
+Seems like those luge teams come pretty unprepared (kidding). 
 
+## Interactive, Final Visualization
+
+Now, one of the requirements for this TidyTuesday to count as a proper statistics experience, is to go beyond visualizations we've done in class. The previous graph, while cool, is probably a level *below* what we've done in class, let alone above. So, let's take this a step further. 
+
+I'm curious about what could lead to an event needing training events. I hypothesize that events with more training events will, on average, have fewer actual competition events. The logic here is that the competitors need more opportunities to practice and get familiar with the olympic track (or whatever other environment) if they have fewer actual events to do so. Furthermore, having fewer competitions means each one is more meaningful, so with less margin for error they'll want to ensure that they're prepared and comfortable. To do this, I'm going to use plotly (a package I've used previously in extracurricular work) to create an interactive graph that visualizes the relationship between proportion of training events and total number of competition events. Let's load plotly! 
+
+```{r}
+library(plotly)
+```
+
+Now, before graphing, I need to compute two key summary statistics for each discipline. Firstly, I take the mean of `is_training_event`. Since it's a TRUE/FALSE variable, averaging it gives us the proportion of events that are training sessions directly. Secondly, I use `sum(!is_training_event)` to count only competition events, which flips the TRUE/FALSE values so that only non-training rows are counted toward the total.
+
+```{r}
+discipline_plot_data2 <- schedule |>
+  mutate(
+    is_training_event = if_else(str_detect(str_to_lower(event_description), "training"), TRUE, FALSE)
+  ) |>
+  group_by(discipline_code, discipline_name) |>
+  summarise(
+    pct_training        = mean(is_training_event),
+    n_competition_events = sum(!is_training_event),
+    .groups = "drop"
+  )
+
+training_vs_competition_plot <- discipline_plot_data2 |>
+  ggplot(aes(
+    x     = pct_training,
+    y     = n_competition_events,
+    size  = n_competition_events,
+    color = discipline_name,
+    text  = paste0(
+      "<b>", discipline_name, "</b><br>",
+      "Training proportion: ", scales::percent(pct_training, accuracy = 0.1), "<br>",
+      "Competition events: ", n_competition_events
+    )
+  )) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(
+    aes(x = pct_training, y = n_competition_events),
+    method = "lm", se = FALSE, color = "grey40", linewidth = 0.5,
+    inherit.aes = FALSE
+  ) +
+  scale_x_continuous(labels = scales::percent_format()) +
+  scale_y_continuous(limits = c(0, NA)) +
+  labs(
+    title    = "Training Proportion vs. Number of Competition Events",
+    subtitle = "2026 Milan-Cortina Winter Olympics — by Discipline",
+    x        = "Proportion of Training Events",
+    y        = "Number of Competition Events",
+    size     = "Competition Events",
+    color    = "Discipline"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(legend.position = "right")
+
+ggplotly(training_vs_competition_plot, tooltip = "text")
+```
+
+A quick guide on interacting with this graph: 
+
+- The size of the circle corresponds with the number of competition events for the discipline (i.e. larger circle = high number of competition events) 
+- Hover over each circle to see the specific information relative to the discipline 
+- Double click on a discipline on the right to highlight that one data point, and double click it again to unselect it
+
+While the line of best fit seems to support my hypothesis, a quick line of r code reveals that the R-squared value here is...
+```{r}
+summary(lm(n_competition_events ~ pct_training, data = discipline_plot_data2))$r.squared
+```
+Yikes. Training proportion only explains about 18% of the variation in competition events across disciplines. To be fair, it's not a great candidate for linear regression in the first place. As visible in the graph, the data has a large cluster of disciplines at 0% training proportion, with only a handful of disciplines that have any training events at all. With so few data points spread across the x-axis, it's very difficult to establish a meaningful linear relationship between a wall of data points at 0 on the x-axis and a few others scattered throughout the graph. Still, I'm proud of the interactive aspect of this graph. This isn't about proving my hypothesis correct, but just practicing performing data science and creating visualizations with real-world data, which was a success.
